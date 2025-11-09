@@ -11,36 +11,75 @@ import {
 import { useRef } from "react";
 import React from "react";
 
+// --- Helper Function: Creates one set of dash springs ---
+const createDashSprings = () => {
+  const springConfig = { damping: 20, stiffness: 300, mass: 0.5 };
+  return {
+    x: useSpring(0, springConfig),
+    y: useSpring(0, springConfig),
+    width: useSpring(0, springConfig),
+    height: useSpring(0, springConfig),
+    rotate: useSpring(0, springConfig), // We have this if we need it
+  };
+};
+
 export default function Home() {
-  // === Mouse Logic: Leaders ===
-  const maskX = useMotionValue(0);
-  const maskY = useMotionValue(0);
+  // === Particle Pool ===
+  // 1. Increased pool size from 5 to 8
+  const dashPool = useRef([
+    createDashSprings(),
+    createDashSprings(),
+    createDashSprings(),
+    createDashSprings(),
+    createDashSprings(),
+    createDashSprings(),
+    createDashSprings(),
+    createDashSprings(),
+  ]).current;
 
-  // === Mouse Logic: Springs (The "Bubbles") ===
-  const springConfig = { damping: 30, stiffness: 100, mass: 0.5 };
-  const bubble1X = useSpring(maskX, springConfig);
-  const bubble1Y = useSpring(maskY, springConfig);
-  const bubble2X = useSpring(maskX, { damping: 50, stiffness: 200, mass: 1 });
-  const bubble2Y = useSpring(maskY, { damping: 50, stiffness: 200, mass: 1 });
-  const bubble3X = useSpring(maskX, { damping: 70, stiffness: 300, mass: 1.5 });
-  const bubble3Y = useSpring(maskX, { damping: 70, stiffness: 300, mass: 1.5 });
+  const particleIndex = useRef(0);
+  const throttleTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // === Bubbly REVEAL Mask (Hard Edge) ===
-  // 1. This is the change!
-  //    'black 99%, transparent 100%' creates a hard-edged circle.
+  // === Bubbly REVEAL Mask (Dash Pool) ===
+  // 2. Updated template to include all 8 dashes
   const maskImage = useMotionTemplate`
     radial-gradient(
-      150px at ${bubble1X}px ${bubble1Y}px, 
+      ellipse ${dashPool[0].width}px ${dashPool[0].height}px at ${dashPool[0].x}px ${dashPool[0].y}px, 
       black 99%, 
       transparent 100%
     ),
     radial-gradient(
-      250px at ${bubble2X}px ${bubble2Y}px, 
+      ellipse ${dashPool[1].width}px ${dashPool[1].height}px at ${dashPool[1].x}px ${dashPool[1].y}px, 
       black 99%, 
       transparent 100%
     ),
     radial-gradient(
-      100px at ${bubble3X}px ${bubble3Y}px, 
+      ellipse ${dashPool[2].width}px ${dashPool[2].height}px at ${dashPool[2].x}px ${dashPool[2].y}px, 
+      black 99%, 
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse ${dashPool[3].width}px ${dashPool[3].height}px at ${dashPool[3].x}px ${dashPool[3].y}px, 
+      black 99%, 
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse ${dashPool[4].width}px ${dashPool[4].height}px at ${dashPool[4].x}px ${dashPool[4].y}px, 
+      black 99%, 
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse ${dashPool[5].width}px ${dashPool[5].height}px at ${dashPool[5].x}px ${dashPool[5].y}px, 
+      black 99%, 
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse ${dashPool[6].width}px ${dashPool[6].height}px at ${dashPool[6].x}px ${dashPool[6].y}px, 
+      black 99%, 
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse ${dashPool[7].width}px ${dashPool[7].height}px at ${dashPool[7].x}px ${dashPool[7].y}px, 
       black 99%, 
       transparent 100%
     )
@@ -56,8 +95,35 @@ export default function Home() {
     const rect = event.currentTarget.getBoundingClientRect();
     x.set(event.clientX - rect.left - rect.width / 2);
     y.set(event.clientY - rect.top - rect.height / 2);
-    maskX.set(event.clientX - rect.left);
-    maskY.set(event.clientY - rect.top);
+
+    // --- Simple Throttle (Slightly faster) ---
+    if (throttleTimer.current) {
+      return;
+    }
+
+    // 3. Spawning particles slightly faster (25ms)
+    throttleTimer.current = setTimeout(() => {
+      throttleTimer.current = null;
+    }, 25);
+
+    // --- "Fire" a Particle ---
+    const index = (particleIndex.current + 1) % dashPool.length;
+    particleIndex.current = index;
+    const currentDash = dashPool[index];
+
+    // 4. More "uneven" randomization
+    currentDash.x.set(event.clientX - rect.left);
+    currentDash.y.set(event.clientY - rect.top);
+    // Width: can be short (30) or long (330)
+    currentDash.width.set(30 + Math.random() * 300);
+    // Height: can be very thin (10) or fatter (80)
+    currentDash.height.set(10 + Math.random() * 70);
+
+    // 5. Increased lifespan (400ms) for a larger reveal
+    setTimeout(() => {
+      currentDash.width.set(0);
+      currentDash.height.set(0);
+    }, 400);
   }
 
   // === Scroll "Fly-Away" Logic (unchanged) ===
