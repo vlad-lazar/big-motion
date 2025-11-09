@@ -5,7 +5,7 @@ import {
   useTransform,
   motion,
   useScroll,
-  useMotionTemplate,
+  useMotionTemplate, // We need this again
   useSpring,
 } from "framer-motion";
 import { useRef } from "react";
@@ -13,19 +13,36 @@ import React from "react";
 
 // --- Helper Function: Creates one set of dash springs ---
 const createDashSprings = () => {
-  const springConfig = { damping: 20, stiffness: 300, mass: 0.5 };
+  // Softer, bouncier spring
+  const springConfig = { damping: 30, stiffness: 100, mass: 1 };
+
   return {
-    x: useSpring(0, springConfig),
-    y: useSpring(0, springConfig),
-    width: useSpring(0, springConfig),
-    height: useSpring(0, springConfig),
-    rotate: useSpring(0, springConfig), // We have this if we need it
+    x: useSpring(0, springConfig), // cx
+    y: useSpring(0, springConfig), // cy
+    width: useSpring(0, springConfig), // rx
+    height: useSpring(0, springConfig), // ry
+    rotate: useSpring(0, springConfig), // rotation
   };
 };
 
+// --- New, truly random shape function ---
+function setRandomShape(dash) {
+  // This function now creates a much wider variety of shapes.
+  // Sometimes it will be a circle (width ≈ height).
+  // Sometimes it will be a dash (width >> height).
+  // And it will always have a random rotation.
+
+  const widthRadius = 20 + Math.random() * 80; // Radius: 20px to 100px
+  const heightRadius = 20 + Math.random() * 80; // Radius: 20px to 100px
+  const rotation = Math.random() * 360; // 0 to 360 degrees
+
+  dash.width.set(widthRadius);
+  dash.height.set(heightRadius);
+  dash.rotate.set(rotation);
+}
+
 export default function Home() {
   // === Particle Pool ===
-  // 1. Increased pool size from 5 to 8
   const dashPool = useRef([
     createDashSprings(),
     createDashSprings(),
@@ -37,55 +54,17 @@ export default function Home() {
     createDashSprings(),
   ]).current;
 
+  // === Particle State Refs ===
+  const dashTimeouts = useRef<NodeJS.Timeout[][]>(
+    Array(dashPool.length)
+      .fill(null)
+      .map(() => [])
+  ).current;
+
   const particleIndex = useRef(0);
   const throttleTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // === Bubbly REVEAL Mask (Dash Pool) ===
-  // 2. Updated template to include all 8 dashes
-  const maskImage = useMotionTemplate`
-    radial-gradient(
-      ellipse ${dashPool[0].width}px ${dashPool[0].height}px at ${dashPool[0].x}px ${dashPool[0].y}px, 
-      black 99%, 
-      transparent 100%
-    ),
-    radial-gradient(
-      ellipse ${dashPool[1].width}px ${dashPool[1].height}px at ${dashPool[1].x}px ${dashPool[1].y}px, 
-      black 99%, 
-      transparent 100%
-    ),
-    radial-gradient(
-      ellipse ${dashPool[2].width}px ${dashPool[2].height}px at ${dashPool[2].x}px ${dashPool[2].y}px, 
-      black 99%, 
-      transparent 100%
-    ),
-    radial-gradient(
-      ellipse ${dashPool[3].width}px ${dashPool[3].height}px at ${dashPool[3].x}px ${dashPool[3].y}px, 
-      black 99%, 
-      transparent 100%
-    ),
-    radial-gradient(
-      ellipse ${dashPool[4].width}px ${dashPool[4].height}px at ${dashPool[4].x}px ${dashPool[4].y}px, 
-      black 99%, 
-      transparent 100%
-    ),
-    radial-gradient(
-      ellipse ${dashPool[5].width}px ${dashPool[5].height}px at ${dashPool[5].x}px ${dashPool[5].y}px, 
-      black 99%, 
-      transparent 100%
-    ),
-    radial-gradient(
-      ellipse ${dashPool[6].width}px ${dashPool[6].height}px at ${dashPool[6].x}px ${dashPool[6].y}px, 
-      black 99%, 
-      transparent 100%
-    ),
-    radial-gradient(
-      ellipse ${dashPool[7].width}px ${dashPool[7].height}px at ${dashPool[7].x}px ${dashPool[7].y}px, 
-      black 99%, 
-      transparent 100%
-    )
-  `;
-
-  // === Parallax for Headshot (Bottom Layer) ===
+  // === Parallax for Headshot ===
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const xTransformHeadshot = useTransform(x, [-600, 600], [-10, 10]);
@@ -96,12 +75,10 @@ export default function Home() {
     x.set(event.clientX - rect.left - rect.width / 2);
     y.set(event.clientY - rect.top - rect.height / 2);
 
-    // --- Simple Throttle (Slightly faster) ---
+    // --- Simple Throttle ---
     if (throttleTimer.current) {
       return;
     }
-
-    // 3. Spawning particles slightly faster (25ms)
     throttleTimer.current = setTimeout(() => {
       throttleTimer.current = null;
     }, 25);
@@ -110,23 +87,38 @@ export default function Home() {
     const index = (particleIndex.current + 1) % dashPool.length;
     particleIndex.current = index;
     const currentDash = dashPool[index];
+    const currentTimers = dashTimeouts[index];
 
-    // 4. More "uneven" randomization
+    // Clear any old timeouts
+    currentTimers.forEach(clearTimeout);
+    dashTimeouts[index] = [];
+
+    // Set particle position (center of the ellipse)
     currentDash.x.set(event.clientX - rect.left);
     currentDash.y.set(event.clientY - rect.top);
-    // Width: can be short (30) or long (330)
-    currentDash.width.set(30 + Math.random() * 300);
-    // Height: can be very thin (10) or fatter (80)
-    currentDash.height.set(10 + Math.random() * 70);
 
-    // 5. Increased lifespan (400ms) for a larger reveal
-    setTimeout(() => {
+    // --- (Phase 1) Spawn with first random shape ---
+    setRandomShape(currentDash);
+
+    const lifespan = 400; // Total particle life
+
+    // --- (Phase 2) "Pulse" to a new random shape mid-life ---
+    const pulseTimer = setTimeout(() => {
+      setRandomShape(currentDash);
+    }, lifespan / 2);
+
+    // --- (Phase 3) Despawn at the end of its life ---
+    const despawnTimer = setTimeout(() => {
       currentDash.width.set(0);
       currentDash.height.set(0);
-    }, 400);
+      // No need to reset rotate, it's invisible
+    }, lifespan);
+
+    // Store the new timeouts
+    dashTimeouts[index].push(pulseTimer, despawnTimer);
   }
 
-  // === Scroll "Fly-Away" Logic (unchanged) ===
+  // === Scroll "Fly-Away" Logic ===
   const scrollRef = useRef(null);
   const { scrollYProgress } = useScroll({
     target: scrollRef,
@@ -134,6 +126,9 @@ export default function Home() {
   });
   const scale = useTransform(scrollYProgress, [0, 1], [1, 0.2]);
   const opacity = useTransform(scrollYProgress, [0, 1], [1, 0]);
+
+  // We need this for the SVG transform attribute
+  const transformTemplate = useMotionTemplate;
 
   return (
     <div className="flex min-h-[300vh] flex-col items-center bg-black">
@@ -144,8 +139,38 @@ export default function Home() {
         style={{
           scale,
           opacity,
+          isolation: "isolate", // For Safari mask
         }}
       >
+        {/* === SVG MASK DEFINITION (Using <ellipse>) === */}
+        <svg
+          className="absolute left-0 top-0 h-0 w-0" // Visually hidden
+          aria-hidden="true"
+        >
+          <defs>
+            <mask id="particle-mask">
+              {/* Start with a black background = 100% transparent (hidden) */}
+              <rect width="100%" height="100%" fill="black" />
+
+              {/* Render our 8 motion-driven ellipses */}
+              {dashPool.map((dash, i) => (
+                <motion.ellipse
+                  key={i}
+                  fill="white" // 'white' = 100% opaque (REVEAL the image)
+                  // Center the ellipse on the cursor
+                  cx={dash.x}
+                  cy={dash.y}
+                  // Use our random animated radii
+                  rx={dash.width}
+                  ry={dash.height}
+                  // Apply the random animated rotation around the ellipse's center
+                  transform={transformTemplate`rotate(${dash.rotate} ${dash.x} ${dash.y})`}
+                />
+              ))}
+            </mask>
+          </defs>
+        </svg>
+
         {/* === LAYER 1 (Bottom) === */}
         <motion.img
           src="/headshot_transparent.png"
@@ -172,8 +197,9 @@ export default function Home() {
           alt="Helmet Reveal"
           className="absolute inset-0 z-30 h-full w-full object-contain"
           style={{
-            maskImage: maskImage,
-            WebkitMaskImage: maskImage, // For Safari
+            // Use the SVG mask we defined above
+            maskImage: "url(#particle-mask)",
+            WebkitMaskImage: "url(#particle-mask)",
           }}
         />
       </motion.main>
